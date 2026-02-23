@@ -25,7 +25,9 @@ function serveImage(fileId) {
   const file = DriveApp.getFileById(fileId);
   const blob = file.getBlob();
   const mime = file.getMimeType() || 'image/png';
-  return ContentService.createBlobOutput(blob).setMimeType(mime);
+  const base64 = Utilities.base64Encode(blob.getBytes());
+  const json = JSON.stringify({ mime: mime, data: base64 });
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
 
 function listFolder(folderId) {

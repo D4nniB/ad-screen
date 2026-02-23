@@ -5,23 +5,20 @@
 
   const defaultDuration = config?.defaultDuration || 15;
   const scriptUrl = config?.driveFolderScriptUrl?.trim();
-  const driveUrl = (id) => scriptUrl
-    ? `${scriptUrl}?imageId=${encodeURIComponent(id)}`
-    : `https://drive.google.com/uc?export=view&id=${id}`;
 
-  function buildSlideshow(files) {
-    if (!files?.length) {
-      slideshow.innerHTML = '<div class="ad">Add images to your Drive folder or configure file IDs in config.js</div>';
+  function startSlideshow(items) {
+    if (!items?.length) {
+      slideshow.innerHTML = '<div class="ad">Add images to ads/ folder and list them in config.js (localImages), or configure Google Drive.</div>';
       return;
     }
 
-    slideshow.innerHTML = files.map((file, i) => {
-      const id = typeof file === 'string' ? file : file.id;
-      const duration = (typeof file === 'object' && file.duration) || defaultDuration;
+    slideshow.innerHTML = items.map((item, i) => {
+      const src = typeof item === 'string' ? item : item.src || item.id;
+      const duration = (typeof item === 'object' && item.duration) || defaultDuration;
       const active = i === 0 ? ' active' : '';
       return `<div class="slide${active}" data-duration="${duration}">
         <div class="ad ad-image">
-          <img src="${driveUrl(id)}" alt="Ad ${i + 1}" loading="${i === 0 ? 'eager' : 'lazy'}">
+          <img src="${src}" alt="Ad ${i + 1}" loading="${i === 0 ? 'eager' : 'lazy'}">
         </div>
       </div>`;
     }).join('');
@@ -60,27 +57,51 @@
     goToSlide(0);
   }
 
+  async function fetchImageAsDataUrl(id) {
+    const res = await fetch(`${scriptUrl}?imageId=${encodeURIComponent(id)}`);
+    const { mime, data } = await res.json();
+    return `data:${mime};base64,${data}`;
+  }
+
   async function loadFromFolder() {
-    const scriptUrl = config?.driveFolderScriptUrl?.trim();
     const folderId = config?.driveFolderId;
     if (scriptUrl && folderId) {
       try {
         const res = await fetch(`${scriptUrl}?folderId=${encodeURIComponent(folderId)}`);
         const files = await res.json();
-        if (Array.isArray(files) && !files.error) {
-          buildSlideshow(files);
+        if (Array.isArray(files) && !files.error && files.length > 0) {
+          slideshow.innerHTML = '<div class="ad">Loading images...</div>';
+          const items = await Promise.all(files.map(async (f) => ({
+            src: await fetchImageAsDataUrl(f.id),
+            duration: defaultDuration,
+          })));
+          startSlideshow(items);
           return;
         }
       } catch (err) {
-        console.warn('Could not load from Drive folder:', err);
+        console.warn('Drive folder fetch failed:', err);
       }
     }
-    if (config?.driveFiles?.length) {
-      buildSlideshow(config.driveFiles);
-    } else {
-      buildSlideshow([]);
+    if (config?.driveFiles?.length && scriptUrl) {
+      try {
+        slideshow.innerHTML = '<div class="ad">Loading images...</div>';
+        const items = await Promise.all(config.driveFiles.map(async (f) => {
+          const id = typeof f === 'string' ? f : f.id;
+          const dur = typeof f === 'object' && f.duration ? f.duration : defaultDuration;
+          return { src: await fetchImageAsDataUrl(id), duration: dur };
+        }));
+        startSlideshow(items);
+        return;
+      } catch (err) {
+        console.warn('Drive files fetch failed:', err);
+      }
     }
+    startSlideshow([]);
   }
 
-  loadFromFolder();
+  if (config?.localImages?.length) {
+    startSlideshow(config.localImages);
+  } else {
+    loadFromFolder();
+  }
 })();
