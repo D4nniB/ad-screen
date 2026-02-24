@@ -13,9 +13,18 @@
     }
 
     slideshow.innerHTML = items.map((item, i) => {
-      const src = typeof item === 'string' ? item : item.src || item.id;
       const duration = (typeof item === 'object' && item.duration) || defaultDuration;
       const active = i === 0 ? ' active' : '';
+      if (item.type === 'html') {
+        const raw = item.content || '';
+        const escaped = raw.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        return `<div class="slide${active}" data-duration="${duration}">
+          <div class="ad ad-iframe">
+            <iframe title="Gym" srcdoc="${escaped}"></iframe>
+          </div>
+        </div>`;
+      }
+      const src = typeof item === 'string' ? item : item.src || item.id;
       return `<div class="slide${active}" data-duration="${duration}">
         <div class="ad ad-image">
           <img src="${src}" alt="Ad ${i + 1}" loading="${i === 0 ? 'eager' : 'lazy'}">
@@ -63,21 +72,58 @@
     return `data:${mime};base64,${data}`;
   }
 
+  async function fetchHtmlContent(id) {
+    const res = await fetch(`${scriptUrl}?contentId=${encodeURIComponent(id)}`);
+    return await res.text();
+  }
+
+  function isHtml(mimeType) {
+    return !!(mimeType && (mimeType === 'text/html' || mimeType.indexOf('html') !== -1));
+  }
+
   async function loadFromFolder() {
     const folderId = config?.driveFolderId;
     if (scriptUrl && folderId) {
       try {
         const res = await fetch(`${scriptUrl}?folderId=${encodeURIComponent(folderId)}`);
-        const files = await res.json();
-        if (Array.isArray(files) && !files.error && files.length > 0) {
-          slideshow.innerHTML = '<div class="ad">Loading images...</div>';
-          const items = await Promise.all(files.map(async (f) => ({
-            src: await fetchImageAsDataUrl(f.id),
-            duration: defaultDuration,
-          })));
-          startSlideshow(items);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        const main = data.main || [];
+        const gym = data.gym || [];
+        if (main.length === 0 && gym.length === 0) {
+          startSlideshow([]);
           return;
         }
+        slideshow.innerHTML = '<div class="ad">Loading...</div>';
+        // Build list: every 4th slide is from gym (slides 4, 8, 12, ...)
+        const merged = [];
+        let mainIdx = 0;
+        let gymIdx = 0;
+        while (mainIdx < main.length) {
+          for (let j = 0; j < 3 && mainIdx < main.length; j++) {
+            merged.push({ fromGym: false, index: mainIdx++ });
+          }
+          if (gym.length > 0) {
+            merged.push({ fromGym: true, index: gymIdx % gym.length });
+            gymIdx++;
+          }
+        }
+        const items = await Promise.all(merged.map(async (slot) => {
+          if (slot.fromGym) {
+            const f = gym[slot.index];
+            if (isHtml(f.mimeType)) {
+              const content = await fetchHtmlContent(f.id);
+              return { type: 'html', content, duration: defaultDuration };
+            }
+            const src = await fetchImageAsDataUrl(f.id);
+            return { src, duration: defaultDuration };
+          }
+          const f = main[slot.index];
+          const src = await fetchImageAsDataUrl(f.id);
+          return { src, duration: defaultDuration };
+        }));
+        startSlideshow(items);
+        return;
       } catch (err) {
         console.warn('Drive folder fetch failed:', err);
       }

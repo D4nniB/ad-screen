@@ -3,22 +3,33 @@
  * Deploy → New deployment → Web app → Execute as: Me, Who has access: Anyone
  *
  * Routes:
- * - ?folderId=...  → JSON list of image files in folder
- * - ?imageId=...   → Serves the image (bypasses Drive embedding restrictions)
+ * - ?folderId=...   → { main: [...], gym: [...] } (main folder images + "gym" subfolder items)
+ * - ?imageId=...    → Image as base64 JSON
+ * - ?contentId=... → Raw file content (for HTML in gym folder)
  */
 function doGet(e) {
   const params = e?.parameter || {};
   const imageId = params.imageId || params.id;
+  const contentId = params.contentId || params.content;
   const folderId = params.folderId || params.folder;
 
   if (imageId) {
     return serveImage(imageId);
   }
+  if (contentId) {
+    return serveFileContent(contentId);
+  }
   if (folderId) {
     return listFolder(folderId);
   }
-  return ContentService.createTextOutput(JSON.stringify({ error: 'imageId or folderId required' }))
+  return ContentService.createTextOutput(JSON.stringify({ error: 'imageId, contentId or folderId required' }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function serveFileContent(fileId) {
+  const file = DriveApp.getFileById(fileId);
+  const content = file.getBlob().getDataAsString('UTF-8');
+  return ContentService.createTextOutput(content).setMimeType(ContentService.MimeType.HTML);
 }
 
 function serveImage(fileId) {
@@ -32,14 +43,36 @@ function serveImage(fileId) {
 
 function listFolder(folderId) {
   const folder = DriveApp.getFolderById(folderId);
-  const files = folder.getFiles();
-  const list = [];
-  while (files.hasNext()) {
-    const file = files.next();
+  const main = [];
+  const gym = [];
+
+  // Main folder: only direct files (images), not subfolders
+  const mainFiles = folder.getFiles();
+  while (mainFiles.hasNext()) {
+    const file = mainFiles.next();
     if (file.getMimeType().indexOf('image/') === 0) {
-      list.push({ id: file.getId(), name: file.getName() });
+      main.push({ id: file.getId(), name: file.getName(), mimeType: file.getMimeType() });
     }
   }
-  return ContentService.createTextOutput(JSON.stringify(list))
+
+  // Subfolder named "gym": images and HTML
+  const subfolders = folder.getFolders();
+  while (subfolders.hasNext()) {
+    const sub = subfolders.next();
+    if (sub.getName().toLowerCase() === 'gym') {
+      const gymFiles = sub.getFiles();
+      while (gymFiles.hasNext()) {
+        const file = gymFiles.next();
+        const mime = file.getMimeType();
+        if (mime.indexOf('image/') === 0 || mime === 'text/html' || mime.indexOf('html') !== -1) {
+          gym.push({ id: file.getId(), name: file.getName(), mimeType: mime });
+        }
+      }
+      break;
+    }
+  }
+
+  const result = { main: main, gym: gym };
+  return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
 }
