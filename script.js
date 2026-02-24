@@ -12,15 +12,15 @@
       return;
     }
 
+    const gymPage = config?.gymPage || 'gym-schedule.html';
+
     slideshow.innerHTML = items.map((item, i) => {
       const duration = (typeof item === 'object' && item.duration) || defaultDuration;
       const active = i === 0 ? ' active' : '';
-      if (item.type === 'html') {
-        const raw = item.content || '';
-        const escaped = raw.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+      if (item.type === 'gym') {
         return `<div class="slide${active}" data-duration="${duration}">
           <div class="ad ad-iframe">
-            <iframe title="Gym" srcdoc="${escaped}"></iframe>
+            <iframe title="Lyftingaklefi – Tímatafla" src="${gymPage}"></iframe>
           </div>
         </div>`;
       }
@@ -72,13 +72,21 @@
     return `data:${mime};base64,${data}`;
   }
 
-  async function fetchHtmlContent(id) {
-    const res = await fetch(`${scriptUrl}?contentId=${encodeURIComponent(id)}`);
-    return await res.text();
-  }
-
-  function isHtml(mimeType) {
-    return !!(mimeType && (mimeType === 'text/html' || mimeType.indexOf('html') !== -1));
+  function interleaveGym(adItems) {
+    const interval = Math.max(1, config?.gymInterval || 5);
+    const gymDuration = config?.gymDuration ?? defaultDuration;
+    const gymSlide = { type: 'gym', duration: gymDuration };
+    const merged = [];
+    let i = 0;
+    while (i < adItems.length) {
+      let count = 0;
+      for (let j = 0; j < interval - 1 && i < adItems.length; j++) {
+        merged.push(adItems[i++]);
+        count++;
+      }
+      if (count > 0) merged.push(gymSlide);
+    }
+    return merged;
   }
 
   async function loadFromFolder() {
@@ -86,44 +94,17 @@
     if (scriptUrl && folderId) {
       try {
         const res = await fetch(`${scriptUrl}?folderId=${encodeURIComponent(folderId)}`);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        const main = data.main || [];
-        const gym = data.gym || [];
-        if (main.length === 0 && gym.length === 0) {
-          startSlideshow([]);
+        const files = await res.json();
+        if (Array.isArray(files) && !files.error && files.length > 0) {
+          slideshow.innerHTML = '<div class="ad">Loading images...</div>';
+          const adItems = await Promise.all(files.map(async (f) => ({
+            src: await fetchImageAsDataUrl(f.id),
+            duration: defaultDuration,
+          })));
+          const items = interleaveGym(adItems);
+          startSlideshow(items);
           return;
         }
-        slideshow.innerHTML = '<div class="ad">Loading...</div>';
-        // Build list: every 4th slide is from gym (slides 4, 8, 12, ...)
-        const merged = [];
-        let mainIdx = 0;
-        let gymIdx = 0;
-        while (mainIdx < main.length) {
-          for (let j = 0; j < 3 && mainIdx < main.length; j++) {
-            merged.push({ fromGym: false, index: mainIdx++ });
-          }
-          if (gym.length > 0) {
-            merged.push({ fromGym: true, index: gymIdx % gym.length });
-            gymIdx++;
-          }
-        }
-        const items = await Promise.all(merged.map(async (slot) => {
-          if (slot.fromGym) {
-            const f = gym[slot.index];
-            if (isHtml(f.mimeType)) {
-              const content = await fetchHtmlContent(f.id);
-              return { type: 'html', content, duration: defaultDuration };
-            }
-            const src = await fetchImageAsDataUrl(f.id);
-            return { src, duration: defaultDuration };
-          }
-          const f = main[slot.index];
-          const src = await fetchImageAsDataUrl(f.id);
-          return { src, duration: defaultDuration };
-        }));
-        startSlideshow(items);
-        return;
       } catch (err) {
         console.warn('Drive folder fetch failed:', err);
       }
@@ -131,12 +112,12 @@
     if (config?.driveFiles?.length && scriptUrl) {
       try {
         slideshow.innerHTML = '<div class="ad">Loading images...</div>';
-        const items = await Promise.all(config.driveFiles.map(async (f) => {
+        const adItems = await Promise.all(config.driveFiles.map(async (f) => {
           const id = typeof f === 'string' ? f : f.id;
           const dur = typeof f === 'object' && f.duration ? f.duration : defaultDuration;
           return { src: await fetchImageAsDataUrl(id), duration: dur };
         }));
-        startSlideshow(items);
+        startSlideshow(interleaveGym(adItems));
         return;
       } catch (err) {
         console.warn('Drive files fetch failed:', err);
@@ -146,7 +127,8 @@
   }
 
   if (config?.localImages?.length) {
-    startSlideshow(config.localImages);
+    const adItems = config.localImages.map((src) => ({ src, duration: defaultDuration }));
+    startSlideshow(interleaveGym(adItems));
   } else {
     loadFromFolder();
   }

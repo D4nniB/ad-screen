@@ -10,7 +10,10 @@
 
 window.AD_CONFIG = {
   defaultDuration: 15,
-  localImages: [], // Leave empty to use Drive folder
+  gymInterval: 5,      // Show gym schedule every Nth ad (5 = every 5th slide)
+  gymDuration: 15,     // Seconds to show gym schedule
+  gymPage: 'gym-schedule.html',  // Local HTML page (in ad screen folder)
+  localImages: [],     // Leave empty to use Drive folder
   driveFolderId: '1ooyY1o7aLIL8RrS7wKjYCCmBuZEce3sq',
   driveFolderScriptUrl: 'https://script.google.com/macros/s/AKfycbzf8S7rHQPcm2dvh49J5xOTc08RUd1dO_HJXf1wJ6ULx_uC4Pov4kYUFjeUjFxhCrse/exec',
   driveFiles: [],
