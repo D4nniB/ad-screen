@@ -6,23 +6,39 @@
   const defaultDuration = config?.defaultDuration || 15;
   const scriptUrl = config?.driveFolderScriptUrl?.trim();
 
-  function startSlideshow(items) {
+  const iframeUrl = 'https://d4nnib.github.io/gym-schedule/';
+  const iframeFrequency = 5; // every 5th ad
+
+  function withEmbeddedIframe(items) {
+    const result = [];
+    for (let i = 0; i < items.length; i++) {
+      result.push(items[i]);
+      // After every 4 real ads, insert iframe as the 5th
+      if ((i + 1) % (iframeFrequency - 1) === 0) {
+        result.push({ iframe: true, src: iframeUrl, duration: defaultDuration });
+      }
+    }
+    return result;
+  }
+
+  function startSlideshow(rawItems) {
+    const items = withEmbeddedIframe(rawItems);
     if (!items?.length) {
       slideshow.innerHTML = '<div class="ad">Add images to ads/ folder and list them in config.js (localImages), or configure Google Drive.</div>';
       return;
     }
 
     slideshow.innerHTML = items.map((item, i) => {
+      const src = typeof item === 'string' ? item : item.src || item.id;
       const duration = (typeof item === 'object' && item.duration) || defaultDuration;
       const active = i === 0 ? ' active' : '';
-      if (item.type === 'iframe') {
+      if (item.iframe) {
         return `<div class="slide${active}" data-duration="${duration}">
-          <div class="ad ad-iframe">
-            <iframe src="${item.url}" title="Embedded content" allowfullscreen></iframe>
+          <div class="ad ad-embed">
+            <iframe class="ad-iframe" src="${src}" loading="lazy" scrolling="no"></iframe>
           </div>
         </div>`;
       }
-      const src = typeof item === 'string' ? item : item.src || item.id;
       return `<div class="slide${active}" data-duration="${duration}">
         <div class="ad ad-image">
           <img src="${src}" alt="Ad ${i + 1}" loading="${i === 0 ? 'eager' : 'lazy'}">
@@ -70,33 +86,33 @@
     return `data:${mime};base64,${data}`;
   }
 
-  function insertEmbedSlides(items) {
-    const embedUrl = config?.embedUrl?.trim();
-    if (!embedUrl || !items.length) return items;
-    const embedDuration = config?.embedDuration || defaultDuration;
-    const merged = [];
-    for (let i = 0; i < items.length; i++) {
-      merged.push(items[i]);
-      if ((i + 1) % 4 === 0) {
-        merged.push({ type: 'iframe', url: embedUrl, duration: embedDuration });
-      }
-    }
-    return merged;
-  }
-
   async function loadFromFolder() {
     const folderId = config?.driveFolderId;
     if (scriptUrl && folderId) {
       try {
         const res = await fetch(`${scriptUrl}?folderId=${encodeURIComponent(folderId)}`);
-        const files = await res.json();
-        if (Array.isArray(files) && !files.error && files.length > 0) {
+        const raw = await res.json();
+
+        // Backend currently returns an object like:
+        // { main: [...], gym: [...] } rather than a flat array.
+        let files;
+        if (Array.isArray(raw)) {
+          files = raw;
+        } else if (raw && typeof raw === 'object') {
+          files = Object.values(raw)
+            .flat()
+            .filter((f) => f && f.id);
+        } else {
+          files = [];
+        }
+
+        if (Array.isArray(files) && !raw.error && files.length > 0) {
           slideshow.innerHTML = '<div class="ad">Loading images...</div>';
           const items = await Promise.all(files.map(async (f) => ({
             src: await fetchImageAsDataUrl(f.id),
             duration: defaultDuration,
           })));
-          startSlideshow(insertEmbedSlides(items));
+          startSlideshow(items);
           return;
         }
       } catch (err) {
@@ -111,7 +127,7 @@
           const dur = typeof f === 'object' && f.duration ? f.duration : defaultDuration;
           return { src: await fetchImageAsDataUrl(id), duration: dur };
         }));
-        startSlideshow(insertEmbedSlides(items));
+        startSlideshow(items);
         return;
       } catch (err) {
         console.warn('Drive files fetch failed:', err);
@@ -121,7 +137,7 @@
   }
 
   if (config?.localImages?.length) {
-    startSlideshow(insertEmbedSlides(config.localImages.map(src => ({ src }))));
+    startSlideshow(config.localImages);
   } else {
     loadFromFolder();
   }

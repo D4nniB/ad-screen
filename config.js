@@ -14,6 +14,4 @@ window.AD_CONFIG = {
   driveFolderId: '1ooyY1o7aLIL8RrS7wKjYCCmBuZEce3sq',
   driveFolderScriptUrl: 'https://script.google.com/macros/s/AKfycbzf8S7rHQPcm2dvh49J5xOTc08RUd1dO_HJXf1wJ6ULx_uC4Pov4kYUFjeUjFxhCrse/exec',
   driveFiles: [],
-  embedUrl: 'https://d4nnib.github.io/gym-schedule/', // Website URL to embed every 5th slide
-  embedDuration: 15, // Duration for embedded website slides
 };
