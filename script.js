@@ -109,18 +109,31 @@
         console.warn('Drive folder fetch failed:', err);
       }
     }
-    if (config?.driveFiles?.length && scriptUrl) {
-      try {
-        slideshow.innerHTML = '<div class="ad">Loading images...</div>';
-        const adItems = await Promise.all(config.driveFiles.map(async (f) => {
+    if (config?.driveFiles?.length) {
+      slideshow.innerHTML = '<div class="ad">Loading images...</div>';
+      if (scriptUrl) {
+        try {
+          const adItems = await Promise.all(config.driveFiles.map(async (f) => {
+            const id = typeof f === 'string' ? f : f.id;
+            const dur = typeof f === 'object' && f.duration ? f.duration : defaultDuration;
+            return { src: await fetchImageAsDataUrl(id), duration: dur };
+          }));
+          startSlideshow(interleaveGym(adItems));
+          return;
+        } catch (err) {
+          console.warn('Drive files fetch failed:', err);
+        }
+      } else {
+        const adItems = config.driveFiles.map((f) => {
           const id = typeof f === 'string' ? f : f.id;
           const dur = typeof f === 'object' && f.duration ? f.duration : defaultDuration;
-          return { src: await fetchImageAsDataUrl(id), duration: dur };
-        }));
+          return {
+            src: `https://drive.google.com/thumbnail?id=${id}&sz=w1920`,
+            duration: dur,
+          };
+        });
         startSlideshow(interleaveGym(adItems));
         return;
-      } catch (err) {
-        console.warn('Drive files fetch failed:', err);
       }
     }
     startSlideshow([]);
